@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn test_split_special_characters() {
         assert_eq!(
-            split_special_characters("Hello, world!"),
+            split_special_characters("Hello, world!").collect::<Vec<_>>(),
             vec!["Hello", "world"]
         );
     }
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn test_split_special_characters_with_numbers() {
         assert_eq!(
-            split_special_characters("/test/bin/bath"),
+            split_special_characters("/test/bin/bath").collect::<Vec<_>>(),
             vec!["test", "bin", "bath"]
         );
     }
