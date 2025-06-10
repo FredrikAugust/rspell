@@ -2,8 +2,10 @@ use std::{collections::HashSet, fs, path::PathBuf};
 
 use clap::Parser;
 
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tree_sitter::Parser as TSParser;
 use tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// A tool to check for typos in code.
 #[derive(Parser, Debug)]
@@ -33,17 +35,19 @@ fn load_dictionaries(glob_path: &str) -> Dictionary {
 fn main() {
     let args = Args::parse();
 
-    let files = glob::glob(&args.path).unwrap();
-
-    let mut parser = TSParser::new();
-    parser.set_language(&LANGUAGE_TYPESCRIPT.into()).unwrap();
+    let files = glob::glob(&args.path)
+        .expect("Failed to glob")
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
 
     let dictionary = load_dictionaries("src/dictionaries/*");
 
-    for file in files {
-        let file = file.unwrap();
-        handle_file(file, &dictionary, &mut parser);
-    }
+    files.into_par_iter().for_each(|file| {
+        let mut parser = TSParser::new();
+        parser.set_language(&LANGUAGE_TYPESCRIPT.into()).unwrap();
+
+        handle_file(file, &dictionary, parser);
+    });
 }
 
 const KIND_TO_TYPE_CHECK: &[&str] = &[
@@ -53,7 +57,7 @@ const KIND_TO_TYPE_CHECK: &[&str] = &[
     "property_identifier",
 ];
 
-fn handle_file(file: PathBuf, dictionary: &Dictionary, parser: &mut TSParser) {
+fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) {
     let content = fs::read_to_string(&file).unwrap();
 
     let tree = parser.parse(&content, None).unwrap();
@@ -133,17 +137,8 @@ fn get_all_word_parts(input: &str) -> Vec<String> {
         .collect()
 }
 
-fn split_special_characters(input: &str) -> Vec<String> {
-    input
-        .split(&['/', ' ', '\\', ' ', ',', '.', '!', '_', '-'])
-        .filter_map(|s| {
-            if s.is_empty() {
-                None
-            } else {
-                Some(s.to_string())
-            }
-        })
-        .collect()
+fn split_special_characters(input: &str) -> impl Iterator<Item = &str> {
+    input.unicode_words()
 }
 
 fn split_pascal_case(input: &str) -> Vec<String> {
