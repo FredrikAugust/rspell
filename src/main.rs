@@ -18,7 +18,7 @@ type Dictionary = HashSet<String>;
 fn load_dictionaries(glob_path: &str) -> Dictionary {
     let files = glob::glob(glob_path).unwrap();
 
-    let mut dictionary = HashSet::new();
+    let mut dictionary = HashSet::with_capacity(500_000);
 
     for file in files {
         let file = file.unwrap();
