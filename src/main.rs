@@ -1,8 +1,8 @@
-use std::{collections::HashSet, fs, path::PathBuf};
+use std::{collections::HashSet, fs, path::PathBuf, time::Instant};
 
 use clap::Parser;
 
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use tree_sitter::Parser as TSParser;
 use tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
 use unicode_segmentation::UnicodeSegmentation;
@@ -42,12 +42,16 @@ fn main() {
 
     let dictionary = load_dictionaries("src/dictionaries/*");
 
-    files.into_par_iter().for_each(|file| {
+    let now = Instant::now();
+
+    files.par_iter().for_each(|file| {
         let mut parser = TSParser::new();
         parser.set_language(&LANGUAGE_TYPESCRIPT.into()).unwrap();
 
-        handle_file(file, &dictionary, parser);
+        handle_file(file.to_owned(), &dictionary, parser);
     });
+
+    println!("[*] Done with {} files in {:?}", files.len(), now.elapsed());
 }
 
 const KIND_TO_TYPE_CHECK: &[&str] = &[
