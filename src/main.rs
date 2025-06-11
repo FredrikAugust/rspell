@@ -2,7 +2,7 @@ use std::{collections::HashSet, fs, path::PathBuf, time::Instant};
 
 use clap::Parser;
 
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tree_sitter::Parser as TSParser;
 use tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
 use unicode_segmentation::UnicodeSegmentation;
@@ -44,14 +44,23 @@ fn main() {
 
     let now = Instant::now();
 
-    files.par_iter().for_each(|file| {
+    let mut found = 0;
+    let mut total = 0;
+
+    let results = files.par_iter().map(|file| {
         let mut parser = TSParser::new();
         parser.set_language(&LANGUAGE_TYPESCRIPT.into()).unwrap();
 
-        handle_file(file.to_owned(), &dictionary, parser);
+        handle_file(file.to_owned(), &dictionary, parser)
     });
 
+    for (found_in_file, total_in_file) in results.collect::<Vec<_>>() {
+        found += found_in_file;
+        total += total_in_file;
+    }
+
     println!("[*] Done with {} files in {:?}", files.len(), now.elapsed());
+    println!("[*] Found {} typos in {} files", found, total);
 }
 
 const KIND_TO_TYPE_CHECK: &[&str] = &[
@@ -61,7 +70,7 @@ const KIND_TO_TYPE_CHECK: &[&str] = &[
     "property_identifier",
 ];
 
-fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) {
+fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) -> (i32, i32) {
     let content = fs::read_to_string(&file).unwrap();
 
     let tree = parser.parse(&content, None).unwrap();
@@ -77,10 +86,10 @@ fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) {
 
         let byte_range = node.byte_range();
 
-        let text = &content[byte_range.clone()];
+        let text = &content[byte_range];
 
         if KIND_TO_TYPE_CHECK.contains(&kind) {
-            if contains_typo(&text, dictionary) {
+            if contains_typo(text, dictionary) {
                 found += 1;
             }
             total += 1;
@@ -96,13 +105,7 @@ fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) {
 
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                println!(
-                    "{}: {} / {}",
-                    file.file_name().unwrap().to_str().unwrap(),
-                    found,
-                    total
-                );
-                return;
+                return (found, total);
             }
         }
     }
@@ -129,16 +132,12 @@ fn contains_typo(input: &str, dictionary: &Dictionary) -> bool {
         }
     }
 
-    return false;
+    false
 }
 
 fn get_all_word_parts(input: &str) -> Vec<String> {
     let word_parts = split_special_characters(input);
-    word_parts
-        .into_iter()
-        .map(|s| split_pascal_case(&s))
-        .flatten()
-        .collect()
+    word_parts.into_iter().flat_map(split_pascal_case).collect()
 }
 
 fn split_special_characters(input: &str) -> impl Iterator<Item = &str> {
@@ -161,7 +160,7 @@ fn split_pascal_case(input: &str) -> Vec<String> {
 
     result.push(current);
 
-    result.into_iter().map(|s| s).collect()
+    result
 }
 
 #[cfg(test)]
