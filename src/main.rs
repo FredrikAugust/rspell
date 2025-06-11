@@ -1,8 +1,7 @@
-use std::{collections::HashSet, fs, path::PathBuf, time::Instant};
-
+use anyhow::{Context, Result};
 use clap::Parser;
-
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use std::{collections::HashSet, fs, path::PathBuf, time::Instant};
 use tree_sitter::Parser as TSParser;
 use tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
 use unicode_segmentation::UnicodeSegmentation;
@@ -17,50 +16,58 @@ struct Args {
 
 type Dictionary = HashSet<String>;
 
-fn load_dictionaries(glob_path: &str) -> Dictionary {
+fn load_dictionaries(glob_path: &str) -> Result<Dictionary> {
     let files = glob::glob(glob_path).unwrap();
 
     let mut dictionary = HashSet::with_capacity(500_000);
 
     for file in files {
-        let file = file.unwrap();
-        let file = fs::read_to_string(file).unwrap();
+        let file = fs::read_to_string(file.context("Failed to read file")?)?;
 
         dictionary.extend(file.lines().map(|line| line.to_string()));
     }
 
-    dictionary
+    Ok(dictionary)
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     let files = glob::glob(&args.path)
-        .expect("Failed to glob")
+        .context("Failed to glob")?
         .filter_map(Result::ok)
         .collect::<Vec<_>>();
 
-    let dictionary = load_dictionaries("src/dictionaries/*");
+    let dictionary = load_dictionaries("src/dictionaries/*")?;
 
     let now = Instant::now();
 
     let mut found = 0;
     let mut total = 0;
 
-    let results = files.par_iter().map(|file| {
+    let results = files.par_iter().filter_map(|file| {
         let mut parser = TSParser::new();
-        parser.set_language(&LANGUAGE_TYPESCRIPT.into()).unwrap();
+        parser
+            .set_language(&LANGUAGE_TYPESCRIPT.into())
+            .context("Failed to set language")
+            .ok()?;
 
-        handle_file(file.to_owned(), &dictionary, parser)
+        Some(handle_file(file.to_owned(), &dictionary, parser))
     });
 
-    for (found_in_file, total_in_file) in results.collect::<Vec<_>>() {
+    for (found_in_file, total_in_file) in results
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter_map(Result::ok)
+    {
         found += found_in_file;
         total += total_in_file;
     }
 
     println!("[*] Done with {} files in {:?}", files.len(), now.elapsed());
-    println!("[*] Found {} typos in {} files", found, total);
+    println!("[*] Found {} typos in {} words", found, total);
+
+    Ok(())
 }
 
 const KIND_TO_TYPE_CHECK: &[&str] = &[
@@ -70,10 +77,12 @@ const KIND_TO_TYPE_CHECK: &[&str] = &[
     "property_identifier",
 ];
 
-fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) -> (i32, i32) {
-    let content = fs::read_to_string(&file).unwrap();
+fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) -> Result<(i32, i32)> {
+    let content = fs::read_to_string(&file).context("Failed to read file")?;
 
-    let tree = parser.parse(&content, None).unwrap();
+    let tree = parser
+        .parse(&content, None)
+        .context("Failed to parse file")?;
 
     let mut found = 0;
     let mut total = 0;
@@ -105,7 +114,7 @@ fn handle_file(file: PathBuf, dictionary: &Dictionary, mut parser: TSParser) -> 
 
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return (found, total);
+                return Ok((found, total));
             }
         }
     }

@@ -1,3 +1,3 @@
-export default function gretDooooom() {
+export default function gretDoom() {
   console.log("Helo, wrlod!");
 }
