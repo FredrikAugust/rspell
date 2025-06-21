@@ -12,3 +12,5 @@ tree-sitter-typescript = { version = "0.23.2" }
 codespan-reporting = "0.12.0"
 rayon = "1.10.0"
 unicode-segmentation = "1.12.0"
+once_cell = "1.21.3"
+fancy-regex = "0.14.0"
